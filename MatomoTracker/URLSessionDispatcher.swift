@@ -18,7 +18,7 @@ public final class URLSessionDispatcher: Dispatcher {
     public var logger: Logger = DefaultLogger(minLevel: .warning)
     
     #if os(iOS)
-    private static var webView: WKWebView?
+    private var webView: WKWebView?
     #endif
     
     /// Generate a URLSessionDispatcher instance
@@ -36,23 +36,26 @@ public final class URLSessionDispatcher: Dispatcher {
             self.userAgent = userAgent
         } else {
             logger.debug("Generating userAgent")
-            URLSessionDispatcher.generateDefaultUserAgent() { [weak self] userAgent in
+            generateDefaultUserAgent() { [weak self] userAgent in
                 self?.logger.debug("userAgent generated: \(userAgent)")
                 self?.userAgent = userAgent
             }
         }
     }
     
-    private static func generateDefaultUserAgent(_ completion: @escaping (String) -> Void) {
+    private func generateDefaultUserAgent(_ completion: @escaping (String) -> Void) {
         let userAgentSuffix = " MatomoTracker SDK URLSessionDispatcher"
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [weak self] in
             #if os(OSX)
             let webView = WebView(frame: .zero)
             let userAgent = webView.stringByEvaluatingJavaScript(from: "navigator.userAgent") ?? ""
             completion(userAgent.appending(userAgentSuffix))
             #elseif os(iOS)
-            webView = WKWebView(frame: .zero)
-            webView?.evaluateJavaScript("navigator.userAgent") { (result, error) -> Void in
+            self?.logger.debug("Generating userAgent using a WKWebView")
+            self?.webView = WKWebView(frame: .zero)
+            self?.logger.debug("generating using webView: \(self?.webView)")
+            self?.webView?.evaluateJavaScript("navigator.userAgent") { (result, error) -> Void in
+                self?.logger.debug("Fetched userAgent from webview: \(result)")
                 if let regex = try? NSRegularExpression(pattern: "\\((iPad|iPhone);", options: .caseInsensitive),
                     let resultString = result as? String {
                     let userAgent = regex.stringByReplacingMatches(
@@ -61,12 +64,13 @@ public final class URLSessionDispatcher: Dispatcher {
                         range: NSRange(location: 0, length: resultString.count),
                         withTemplate: "(\(Device.makeCurrentDevice().platform);"
                     )
+                    self?.logger.debug("Successfully parsed userAgent: \(userAgent)")
                     completion(userAgent.appending(userAgentSuffix))
                 } else {
+                    self?.logger.debug("Failed to parse userAgent")
                     completion(userAgentSuffix)
                 }
-                
-                webView = nil
+                self?.webView = nil
             }
             #elseif os(tvOS)
             completion(userAgentSuffix)
